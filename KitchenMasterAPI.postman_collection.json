@@ -1,0 +1,267 @@
+{
+  "info": {
+    "name": "KitchenMasterAPI",
+    "_postman_id": "a1111111-b222-4333-c444-555555555555",
+    "description": "Colección para KitchenMaster API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Register",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{BASE_URL}}/register",
+          "host": [
+            "{{BASE_URL}}"
+          ],
+          "path": [
+            "register"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\": \"user1\", \"password\": \"pass123\"}"
+        }
+      }
+    },
+    {
+      "name": "Login",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{BASE_URL}}/login",
+          "host": [
+            "{{BASE_URL}}"
+          ],
+          "path": [
+            "login"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\": \"admin\", \"password\": \"admin123\"}"
+        }
+      }
+    },
+    {
+      "name": "List Recipes",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{TOKEN}}"
+          }
+        ],
+        "url": {
+          "raw": "{{BASE_URL}}/items",
+          "host": [
+            "{{BASE_URL}}"
+          ],
+          "path": [
+            "items"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Create Recipe (admin)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{TOKEN}}"
+          }
+        ],
+        "url": {
+          "raw": "{{BASE_URL}}/items",
+          "host": [
+            "{{BASE_URL}}"
+          ],
+          "path": [
+            "items"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"title\": \"Tarta de Manzana\", \"description\": \"Cl\\u00e1sica\", \"ingredients\": \"Manzana, Harina\", \"steps\": \"Mezclar y hornear\"}"
+        }
+      }
+    },
+    {
+      "name": "Update Recipe (admin)",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{TOKEN}}"
+          }
+        ],
+        "url": {
+          "raw": "{{BASE_URL}}/items/1",
+          "host": [
+            "{{BASE_URL}}"
+          ],
+          "path": [
+            "items",
+            "1"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"description\": \"Cl\\u00e1sica y deliciosa\"}"
+        }
+      }
+    },
+    {
+      "name": "Delete Recipe (admin)",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{TOKEN}}"
+          }
+        ],
+        "url": {
+          "raw": "{{BASE_URL}}/items/1",
+          "host": [
+            "{{BASE_URL}}"
+          ],
+          "path": [
+            "items",
+            "1"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Suggest Recipe (user)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{TOKEN}}"
+          }
+        ],
+        "url": {
+          "raw": "{{BASE_URL}}/suggestions",
+          "host": [
+            "{{BASE_URL}}"
+          ],
+          "path": [
+            "suggestions"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"title\": \"Ensalada de Quinoa\", \"description\": \"Saludable\", \"ingredients\": \"Quinoa, Verduras\", \"steps\": \"Cocinar, mezclar\"}"
+        }
+      }
+    },
+    {
+      "name": "List Suggestions (admin)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{TOKEN}}"
+          }
+        ],
+        "url": {
+          "raw": "{{BASE_URL}}/suggestions",
+          "host": [
+            "{{BASE_URL}}"
+          ],
+          "path": [
+            "suggestions"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Approve Suggestion (admin)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{TOKEN}}"
+          }
+        ],
+        "url": {
+          "raw": "{{BASE_URL}}/suggestions/1/approve",
+          "host": [
+            "{{BASE_URL}}"
+          ],
+          "path": [
+            "suggestions",
+            "1",
+            "approve"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Reject Suggestion (admin)",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{TOKEN}}"
+          }
+        ],
+        "url": {
+          "raw": "{{BASE_URL}}/suggestions/1",
+          "host": [
+            "{{BASE_URL}}"
+          ],
+          "path": [
+            "suggestions",
+            "1"
+          ]
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "BASE_URL",
+      "value": "http://127.0.0.1:5000"
+    },
+    {
+      "key": "TOKEN",
+      "value": ""
+    }
+  ]
+}
