@@ -3,11 +3,15 @@ import os
 
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
+from flask_jwt_extended import (
+    JWTManager, create_access_token, jwt_required, get_jwt_identity
+)
 from werkzeug.security import generate_password_hash, check_password_hash
 
-# --- App Config ---
+# --- Configuración base ---
 app = Flask(__name__)
+
+# Base de datos (usa PostgreSQL en Render, o SQLite localmente)
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///kitchenmaster.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "change-me-in-production")
@@ -16,16 +20,17 @@ app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
 
-# --- Models ---
+# --- Modelos ---
 class User(db.Model):
     __tablename__ = "users"
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
-    role = db.Column(db.String(20), default="user")  # 'admin' or 'user'
+    role = db.Column(db.String(20), default="user")
 
     def to_dict(self):
         return {"id": self.id, "username": self.username, "role": self.role}
+
 
 class Recipe(db.Model):
     __tablename__ = "recipes"
@@ -48,6 +53,7 @@ class Recipe(db.Model):
             "created_at": self.created_at.isoformat() + "Z",
         }
 
+
 class Suggestion(db.Model):
     __tablename__ = "suggestions"
     id = db.Column(db.Integer, primary_key=True)
@@ -55,7 +61,7 @@ class Suggestion(db.Model):
     description = db.Column(db.Text, default="")
     ingredients = db.Column(db.Text, default="")
     steps = db.Column(db.Text, default="")
-    owner_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)  # the user who suggested
+    owner_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -69,144 +75,138 @@ class Suggestion(db.Model):
             "created_at": self.created_at.isoformat() + "Z",
         }
 
-# --- Helpers ---
-def ensure_db_seed_admin():
-    db.create_all()
-    # Create a default admin if none exists (for first-time testing)
-    if not User.query.filter_by(username="admin").first():
-        admin = User(
-            username="admin",
-            password_hash=generate_password_hash("admin123"),
-            role="admin",
-        )
-        db.session.add(admin)
-        db.session.commit()
 
-def require_admin(user_id):
+# --- Funciones auxiliares ---
+def ensure_admin_exists():
+    with app.app_context():
+        db.create_all()
+        if not User.query.filter_by(username="admin").first():
+            admin = User(
+                username="admin",
+                password_hash=generate_password_hash("admin123"),
+                role="admin"
+            )
+            db.session.add(admin)
+            db.session.commit()
+            print("✅ Admin creado: usuario=admin / contraseña=admin123")
+
+
+def is_admin(user_id):
     user = User.query.get(user_id)
     return user and user.role == "admin"
 
+
+# --- Rutas de autenticación ---
 @app.route("/register", methods=["POST"])
 def register():
-    data = request.get_json(silent=True) or {}
-    username = data.get("username","").strip()
-    password = data.get("password","").strip()
-    role = data.get("role", "user")
+    data = request.get_json() or {}
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()
+
     if not username or not password:
-        return jsonify({"error": "username and password are required"}), 400
-    if role not in ("user", "admin"):
-        role = "user"
+        return jsonify({"error": "username y password requeridos"}), 400
+
     if User.query.filter_by(username=username).first():
-        return jsonify({"error": "username already exists"}), 400
-    user = User(username=username, password_hash=generate_password_hash(password), role=role)
+        return jsonify({"error": "El usuario ya existe"}), 400
+
+    user = User(username=username, password_hash=generate_password_hash(password))
     db.session.add(user)
     db.session.commit()
-    return jsonify({"message": "user created", "user": user.to_dict()}), 201
+
+    return jsonify({"message": "Usuario registrado correctamente"}), 201
+
 
 @app.route("/login", methods=["POST"])
 def login():
-    data = request.get_json(silent=True) or {}
-    username = data.get("username","").strip()
-    password = data.get("password","").strip()
-    if not username or not password:
-        return jsonify({"error": "username and password are required"}), 400
+    data = request.get_json() or {}
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()
+
     user = User.query.filter_by(username=username).first()
     if not user or not check_password_hash(user.password_hash, password):
-        return jsonify({"error": "invalid credentials"}), 401
+        return jsonify({"error": "Credenciales incorrectas"}), 401
+
     token = create_access_token(identity={"id": user.id, "role": user.role, "username": user.username})
     return jsonify({"access_token": token, "user": user.to_dict()})
 
-# --- Recipes ---
+
+# --- Rutas para recetas ---
 @app.route("/items", methods=["GET"])
 @jwt_required()
-def list_recipes():
-    # Everyone logged-in can see approved recipes
+def get_recipes():
     recipes = Recipe.query.order_by(Recipe.created_at.desc()).all()
     return jsonify([r.to_dict() for r in recipes])
+
 
 @app.route("/items", methods=["POST"])
 @jwt_required()
 def create_recipe():
     current_user = get_jwt_identity()
-    if not require_admin(current_user["id"]):
-        return jsonify({"error": "admin only"}), 403
-    data = request.get_json(silent=True) or {}
-    title = (data.get("title") or "").strip()
+    if not is_admin(current_user["id"]):
+        return jsonify({"error": "Solo los admin pueden crear recetas"}), 403
+
+    data = request.get_json() or {}
+    title = data.get("title", "").strip()
+
     if not title:
-        return jsonify({"error": "title is required"}), 400
+        return jsonify({"error": "El título es obligatorio"}), 400
+
     recipe = Recipe(
         title=title,
-        description=data.get("description",""),
-        ingredients=data.get("ingredients",""),
-        steps=data.get("steps",""),
+        description=data.get("description", ""),
+        ingredients=data.get("ingredients", ""),
+        steps=data.get("steps", ""),
         owner_id=current_user["id"]
     )
+
     db.session.add(recipe)
     db.session.commit()
     return jsonify(recipe.to_dict()), 201
 
-@app.route("/items/<int:rid>", methods=["PUT"])
-@jwt_required()
-def update_recipe(rid):
-    current_user = get_jwt_identity()
-    if not require_admin(current_user["id"]):
-        return jsonify({"error": "admin only"}), 403
-    recipe = Recipe.query.get_or_404(rid)
-    data = request.get_json(silent=True) or {}
-    for field in ["title", "description", "ingredients", "steps"]:
-        if field in data and isinstance(data[field], str):
-            setattr(recipe, field, data[field])
-    db.session.commit()
-    return jsonify(recipe.to_dict())
 
-@app.route("/items/<int:rid>", methods=["DELETE"])
-@jwt_required()
-def delete_recipe(rid):
-    current_user = get_jwt_identity()
-    if not require_admin(current_user["id"]):
-        return jsonify({"error": "admin only"}), 403
-    recipe = Recipe.query.get_or_404(rid)
-    db.session.delete(recipe)
-    db.session.commit()
-    return jsonify({"message": "deleted"})
-
-# --- Suggestions Flow ---
+# --- Rutas para sugerencias ---
 @app.route("/suggestions", methods=["POST"])
 @jwt_required()
 def create_suggestion():
     current_user = get_jwt_identity()
-    data = request.get_json(silent=True) or {}
-    title = (data.get("title") or "").strip()
+    data = request.get_json() or {}
+    title = data.get("title", "").strip()
+
     if not title:
-        return jsonify({"error": "title is required"}), 400
-    s = Suggestion(
+        return jsonify({"error": "El título es obligatorio"}), 400
+
+    suggestion = Suggestion(
         title=title,
-        description=data.get("description",""),
-        ingredients=data.get("ingredients",""),
-        steps=data.get("steps",""),
+        description=data.get("description", ""),
+        ingredients=data.get("ingredients", ""),
+        steps=data.get("steps", ""),
         owner_id=current_user["id"]
     )
-    db.session.add(s)
+
+    db.session.add(suggestion)
     db.session.commit()
-    return jsonify(s.to_dict()), 201
+    return jsonify(suggestion.to_dict()), 201
+
 
 @app.route("/suggestions", methods=["GET"])
 @jwt_required()
-def list_suggestions():
+def get_suggestions():
     current_user = get_jwt_identity()
-    if not require_admin(current_user["id"]):
-        return jsonify({"error": "admin only"}), 403
+    if not is_admin(current_user["id"]):
+        return jsonify({"error": "Solo los admin pueden ver sugerencias"}), 403
+
     suggestions = Suggestion.query.order_by(Suggestion.created_at.desc()).all()
     return jsonify([s.to_dict() for s in suggestions])
+
 
 @app.route("/suggestions/<int:sid>/approve", methods=["POST"])
 @jwt_required()
 def approve_suggestion(sid):
     current_user = get_jwt_identity()
-    if not require_admin(current_user["id"]):
-        return jsonify({"error": "admin only"}), 403
+    if not is_admin(current_user["id"]):
+        return jsonify({"error": "Solo los admin pueden aprobar sugerencias"}), 403
+
     s = Suggestion.query.get_or_404(sid)
-    # Create a recipe from suggestion
     recipe = Recipe(
         title=s.title,
         description=s.description,
@@ -217,27 +217,30 @@ def approve_suggestion(sid):
     db.session.add(recipe)
     db.session.delete(s)
     db.session.commit()
-    return jsonify({"message": "approved", "recipe": recipe.to_dict()})
+
+    return jsonify({"message": "Sugerencia aprobada", "recipe": recipe.to_dict()})
+
 
 @app.route("/suggestions/<int:sid>", methods=["DELETE"])
 @jwt_required()
-def reject_suggestion(sid):
+def delete_suggestion(sid):
     current_user = get_jwt_identity()
-    if not require_admin(current_user["id"]):
-        return jsonify({"error": "admin only"}), 403
+    if not is_admin(current_user["id"]):
+        return jsonify({"error": "Solo los admin pueden eliminar sugerencias"}), 403
+
     s = Suggestion.query.get_or_404(sid)
     db.session.delete(s)
     db.session.commit()
-    return jsonify({"message": "rejected"})
+    return jsonify({"message": "Sugerencia eliminada"})
 
+
+# --- Ruta raíz ---
 @app.route("/", methods=["GET"])
-def health():
-    return jsonify({"status": "ok", "name": "KitchenMaster API"}), 200
+def home():
+    return jsonify({"status": "ok", "api": "KitchenMaster API"}), 200
 
-import os
 
 if __name__ == "__main__":
+    ensure_admin_exists()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
-
