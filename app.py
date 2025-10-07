@@ -4,14 +4,14 @@ import os
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import (
-    JWTManager, create_access_token, jwt_required, get_jwt_identity
+    JWTManager, create_access_token, jwt_required, get_jwt_identity, get_jwt
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # --- Configuración base ---
 app = Flask(__name__)
 
-# Base de datos (usa PostgreSQL en Render, o SQLite localmente)
+# Base de datos (PostgreSQL en Render o SQLite localmente)
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///kitchenmaster.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "change-me-in-production")
@@ -19,6 +19,7 @@ app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)
 
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
+
 
 # --- Modelos ---
 class User(db.Model):
@@ -91,11 +92,6 @@ def ensure_admin_exists():
             print("✅ Admin creado: usuario=admin / contraseña=admin123")
 
 
-def is_admin(user_id):
-    user = User.query.get(user_id)
-    return user and user.role == "admin"
-
-
 # --- Rutas de autenticación ---
 @app.route("/register", methods=["POST"])
 def register():
@@ -126,7 +122,14 @@ def login():
     if not user or not check_password_hash(user.password_hash, password):
         return jsonify({"error": "Credenciales incorrectas"}), 401
 
-    token = create_access_token(identity={"id": user.id, "role": user.role, "username": user.username})
+    token = create_access_token(
+        identity=user.id,
+        additional_claims={
+            "role": user.role,
+            "username": user.username
+        }
+    )
+
     return jsonify({"access_token": token, "user": user.to_dict()})
 
 
@@ -141,8 +144,11 @@ def get_recipes():
 @app.route("/items", methods=["POST"])
 @jwt_required()
 def create_recipe():
-    current_user = get_jwt_identity()
-    if not is_admin(current_user["id"]):
+    current_user_id = get_jwt_identity()
+    claims = get_jwt()
+    role = claims.get("role")
+
+    if role != "admin":
         return jsonify({"error": "Solo los admin pueden crear recetas"}), 403
 
     data = request.get_json() or {}
@@ -156,7 +162,7 @@ def create_recipe():
         description=data.get("description", ""),
         ingredients=data.get("ingredients", ""),
         steps=data.get("steps", ""),
-        owner_id=current_user["id"]
+        owner_id=current_user_id
     )
 
     db.session.add(recipe)
@@ -168,7 +174,7 @@ def create_recipe():
 @app.route("/suggestions", methods=["POST"])
 @jwt_required()
 def create_suggestion():
-    current_user = get_jwt_identity()
+    current_user_id = get_jwt_identity()
     data = request.get_json() or {}
     title = data.get("title", "").strip()
 
@@ -180,7 +186,7 @@ def create_suggestion():
         description=data.get("description", ""),
         ingredients=data.get("ingredients", ""),
         steps=data.get("steps", ""),
-        owner_id=current_user["id"]
+        owner_id=current_user_id
     )
 
     db.session.add(suggestion)
@@ -191,8 +197,10 @@ def create_suggestion():
 @app.route("/suggestions", methods=["GET"])
 @jwt_required()
 def get_suggestions():
-    current_user = get_jwt_identity()
-    if not is_admin(current_user["id"]):
+    claims = get_jwt()
+    role = claims.get("role")
+
+    if role != "admin":
         return jsonify({"error": "Solo los admin pueden ver sugerencias"}), 403
 
     suggestions = Suggestion.query.order_by(Suggestion.created_at.desc()).all()
@@ -202,8 +210,10 @@ def get_suggestions():
 @app.route("/suggestions/<int:sid>/approve", methods=["POST"])
 @jwt_required()
 def approve_suggestion(sid):
-    current_user = get_jwt_identity()
-    if not is_admin(current_user["id"]):
+    claims = get_jwt()
+    role = claims.get("role")
+
+    if role != "admin":
         return jsonify({"error": "Solo los admin pueden aprobar sugerencias"}), 403
 
     s = Suggestion.query.get_or_404(sid)
@@ -224,8 +234,10 @@ def approve_suggestion(sid):
 @app.route("/suggestions/<int:sid>", methods=["DELETE"])
 @jwt_required()
 def delete_suggestion(sid):
-    current_user = get_jwt_identity()
-    if not is_admin(current_user["id"]):
+    claims = get_jwt()
+    role = claims.get("role")
+
+    if role != "admin":
         return jsonify({"error": "Solo los admin pueden eliminar sugerencias"}), 403
 
     s = Suggestion.query.get_or_404(sid)
