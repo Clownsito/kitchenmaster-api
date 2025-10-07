@@ -1,18 +1,22 @@
 from datetime import timedelta, datetime
 import os
-
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import (
-    JWTManager, create_access_token, jwt_required, get_jwt_identity, get_jwt
+    JWTManager, create_access_token, jwt_required,
+    get_jwt_identity, get_jwt
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # --- Configuración base ---
 app = Flask(__name__)
 
-# Base de datos (PostgreSQL en Render o SQLite localmente)
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///kitchenmaster.db")
+# Normaliza la URL de Render si es PostgreSQL
+db_url = os.environ.get("DATABASE_URL", "sqlite:///kitchenmaster.db")
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+app.config["SQLALCHEMY_DATABASE_URI"] = db_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "change-me-in-production")
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)
@@ -77,7 +81,7 @@ class Suggestion(db.Model):
         }
 
 
-# --- Funciones auxiliares ---
+# --- Función para crear admin automáticamente ---
 def ensure_admin_exists():
     with app.app_context():
         db.create_all()
@@ -122,8 +126,9 @@ def login():
     if not user or not check_password_hash(user.password_hash, password):
         return jsonify({"error": "Credenciales incorrectas"}), 401
 
+    # 🔥 CORRECCIÓN CLAVE: identity como string
     token = create_access_token(
-        identity=user.id,
+        identity=str(user.id),
         additional_claims={
             "role": user.role,
             "username": user.username
@@ -138,13 +143,13 @@ def login():
 @jwt_required()
 def get_recipes():
     recipes = Recipe.query.order_by(Recipe.created_at.desc()).all()
-    return jsonify([r.to_dict() for r in recipes])
+    return jsonify([r.to_dict() for r in recipes]), 200
 
 
 @app.route("/items", methods=["POST"])
 @jwt_required()
 def create_recipe():
-    current_user_id = get_jwt_identity()
+    current_user_id = int(get_jwt_identity())  # 🔥 convertido a int
     claims = get_jwt()
     role = claims.get("role")
 
@@ -174,7 +179,7 @@ def create_recipe():
 @app.route("/suggestions", methods=["POST"])
 @jwt_required()
 def create_suggestion():
-    current_user_id = get_jwt_identity()
+    current_user_id = int(get_jwt_identity())  # 🔥 convertido a int
     data = request.get_json() or {}
     title = data.get("title", "").strip()
 
@@ -198,13 +203,13 @@ def create_suggestion():
 @jwt_required()
 def get_suggestions():
     claims = get_jwt()
-    role = claims.get("role")
+    role = claims.get("role", None)
 
     if role != "admin":
         return jsonify({"error": "Solo los admin pueden ver sugerencias"}), 403
 
     suggestions = Suggestion.query.order_by(Suggestion.created_at.desc()).all()
-    return jsonify([s.to_dict() for s in suggestions])
+    return jsonify([s.to_dict() for s in suggestions]), 200
 
 
 @app.route("/suggestions/<int:sid>/approve", methods=["POST"])
@@ -228,7 +233,7 @@ def approve_suggestion(sid):
     db.session.delete(s)
     db.session.commit()
 
-    return jsonify({"message": "Sugerencia aprobada", "recipe": recipe.to_dict()})
+    return jsonify({"message": "Sugerencia aprobada", "recipe": recipe.to_dict()}), 200
 
 
 @app.route("/suggestions/<int:sid>", methods=["DELETE"])
@@ -243,7 +248,15 @@ def delete_suggestion(sid):
     s = Suggestion.query.get_or_404(sid)
     db.session.delete(s)
     db.session.commit()
-    return jsonify({"message": "Sugerencia eliminada"})
+    return jsonify({"message": "Sugerencia eliminada"}), 200
+
+
+# --- Ruta de verificación de token ---
+@app.route("/check-token", methods=["GET"])
+@jwt_required()
+def check_token():
+    claims = get_jwt()
+    return jsonify({"message": "Token válido", "claims": claims}), 200
 
 
 # --- Ruta raíz ---
